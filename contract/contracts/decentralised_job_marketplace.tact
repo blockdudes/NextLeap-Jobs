@@ -13,8 +13,7 @@ contract DecentralisedJobMarketplace with Deployable {
     // Address of the NFT collection
     nftCollection: Address;
 
-    // Mapping to track reputation
-    reputation: map<Address, Reputation>;
+    users: map<Address, User>;
 
     init(nftCollection: Address){
         self.jobCounter = 0;
@@ -22,19 +21,100 @@ contract DecentralisedJobMarketplace with Deployable {
         self.nftCollection = nftCollection;
     }
 
+    receive(msg: CreateUser){
+        let user = self.users.get(msg.address);
+        require(user == null, "User already exists");
+        self.users.set(msg.address, User{
+            address: msg.address,
+            name: msg.name,
+            email: msg.email,
+            skills: msg.skills,
+            isEmployer: msg.isEmployer,
+            reputations: emptyMap(),
+            numberOfReputations: 0,
+        });
+        self.reply("Gas refund".asComment());
+    }
+
+    receive(msg: UpdateUserName){
+        let user = self.users.get(msg.address);
+        require(user != null, "User does not exist");
+        self.users.set(msg.address, User{
+            address: msg.address,
+            name: msg.name,
+            email: user!!.email,
+            skills: user!!.skills,
+            isEmployer: user!!.isEmployer,
+            reputations: user!!.reputations,
+            numberOfReputations: user!!.numberOfReputations,
+        });
+        self.reply("Gas refund".asComment());
+    }
+
+    receive(msg: UpdateUserEmail){
+        let user = self.users.get(msg.address);
+        require(user != null, "User does not exist");
+        self.users.set(msg.address, User{
+            address: msg.address,
+            name: user!!.name,
+            email: msg.email,
+            skills: user!!.skills,
+            isEmployer: user!!.isEmployer,
+            reputations: user!!.reputations,
+            numberOfReputations: user!!.numberOfReputations,
+        });
+        self.reply("Gas refund".asComment());
+    }
+
+    receive(msg: UpdateUserRole){
+        let user = self.users.get(msg.address);
+        require(user != null, "User does not exist");
+        self.users.set(msg.address, User{
+            address: msg.address,
+            name: user!!.name,
+            email: user!!.email,
+            skills: user!!.skills,
+            isEmployer: msg.isEmployer,
+            reputations: user!!.reputations,
+            numberOfReputations: user!!.numberOfReputations,
+        });
+        self.reply("Gas refund".asComment());
+    }
+
+    receive(msg: UpdateUserSkills){
+        let user = self.users.get(msg.address);
+        require(user != null, "User does not exist");
+        self.users.set(msg.address, User{
+            address: msg.address,
+            name: user!!.name,
+            email: user!!.email,
+            skills: msg.skills,
+            isEmployer: user!!.isEmployer,
+            reputations: user!!.reputations,
+            numberOfReputations: user!!.numberOfReputations,
+        });
+        self.reply("Gas refund".asComment());
+    }
+
     receive(msg: CreateJob){
+        let employer = context().sender;
+        let user = self.users.get(employer);
+        require(user != null, "Employer does not exist");
+        require(user!!.isEmployer, "Sender is not an employer");
         require(msg.title != "", "Title cannot be empty");
         require(msg.description != "", "Description cannot be empty");
         require(context().value == msg.compensation, "Incorrect value sent");
         
-        let employer = context().sender;
         let jobId = self.jobCounter;
         self.jobCounter = self.jobCounter + 1;
         self.jobs.set(jobId, 
             Job{
+                id: jobId,
                 title: msg.title,
                 description: msg.description,
                 compensation: msg.compensation,
+                skills: msg.skills,
+                numberOfSkills: msg.numberOfSkills,
                 employer: employer, 
                 isAcceptingApplicants: true, 
                 applicants: emptyMap(), 
@@ -42,9 +122,12 @@ contract DecentralisedJobMarketplace with Deployable {
                 createdAt: now(), 
             }
         );
+        self.reply("Gas refund".asComment());
     }
 
     receive(msg: ApplyForJob){
+        let user = self.users.get(context().sender);
+        require(user != null, "User does not exist");
         let job: Job? = self.jobs.get(msg.job_id);
         require(job != null, "Job does not exist");
         require(job!!.isAcceptingApplicants, "Job is not accepting applicants");
@@ -54,9 +137,12 @@ contract DecentralisedJobMarketplace with Deployable {
         let updatedApplicants = job!!.applicants;
         updatedApplicants.set(job!!.numberOfApplicants, applicant);
         let updatedJob = Job{
+            id: job!!.id,
             title: job!!.title,
             description: job!!.description,
             compensation: job!!.compensation,
+            skills: job!!.skills,
+            numberOfSkills: job!!.numberOfSkills,
             employer: job!!.employer,
             worker: job!!.worker,
             isAcceptingApplicants: job!!.isAcceptingApplicants,
@@ -67,16 +153,22 @@ contract DecentralisedJobMarketplace with Deployable {
             completedAt: job!!.completedAt,
         };
         self.jobs.set(msg.job_id, updatedJob);
+        self.reply("Gas refund".asComment());
     }
 
     receive(msg: AcceptApplicant){
+        let user = self.users.get(context().sender);
+        require(user != null, "User does not exist");
         let job = self.jobs.get(msg.job_id);
         require(job != null, "Job does not exist");
         require(job!!.employer == context().sender, "Only employer can accept applicant");
         let updatedJob = Job{
+            id: job!!.id,
             title: job!!.title,
             description: job!!.description,
             compensation: job!!.compensation,
+            skills: job!!.skills,
+            numberOfSkills: job!!.numberOfSkills,
             employer: job!!.employer,
             worker: msg.applicant,
             isAcceptingApplicants: false,
@@ -87,18 +179,24 @@ contract DecentralisedJobMarketplace with Deployable {
             completedAt: job!!.completedAt,
         };
         self.jobs.set(msg.job_id, updatedJob);
+        self.reply("Gas refund".asComment());
     }
 
     receive(msg: CompleteJob){
+        let user = self.users.get(context().sender);
+        require(user != null, "User does not exist");
         let job = self.jobs.get(msg.job_id);
         require(job != null, "Job does not exist");
         require(job!!.worker == context().sender, "Only worker can complete job");
         require(job!!.isCompleted == false, "Job is already completed");
 
         let updatedJob = Job{
+            id: job!!.id,
             title: job!!.title,
             description: job!!.description,
             compensation: job!!.compensation,
+            skills: job!!.skills,
+            numberOfSkills: job!!.numberOfSkills,
             employer: job!!.employer,
             worker: job!!.worker,
             isAcceptingApplicants: job!!.isAcceptingApplicants,
@@ -111,28 +209,29 @@ contract DecentralisedJobMarketplace with Deployable {
             completedAt: now(),
         };
         self.jobs.set(msg.job_id, updatedJob);
-        let reputation = self.reputation.get(job!!.employer);
-        if(reputation == null){
-            reputation = Reputation{
-                ratings: emptyMap(),
-                reviews: emptyMap(),
-                numberOfRatings: 0,
-            };
-        }
-        let updatedRatings = reputation!!.ratings;
-        updatedRatings.set(reputation!!.numberOfRatings, msg.employer_rating);
-        let updatedReviews = reputation!!.reviews;
+        let employer = self.users.get(job!!.employer);
+        let updatedReputations = employer!!.reputations;
         let reviewBuilder = beginString();
         reviewBuilder.append(msg.employer_review);
-        updatedReviews.set(reputation!!.numberOfRatings, reviewBuilder.toCell());
-        self.reputation.set(job!!.employer, Reputation{
-            ratings: updatedRatings,
-            reviews: updatedReviews,
-            numberOfRatings: reputation!!.numberOfRatings + 1,
+        updatedReputations.set(employer!!.numberOfReputations, Reputation{
+            rating: msg.employer_rating,
+            review: reviewBuilder.toCell(),
         });
+        self.users.set(job!!.employer, User{
+            address: employer!!.address,
+            name: employer!!.name,
+            email: employer!!.email,
+            skills: employer!!.skills,
+            isEmployer: employer!!.isEmployer,
+            reputations: updatedReputations,
+            numberOfReputations: employer!!.numberOfReputations + 1,
+        });
+        // self.reply("Gas refund".asComment());
     }
 
     receive(msg: MarkJobCompleted){
+        let user = self.users.get(context().sender);
+        require(user != null, "User does not exist");
         let job = self.jobs.get(msg.job_id);
         require(job != null, "Job does not exist");
         require(job!!.worker != null, "Job is not assigned");
@@ -142,9 +241,12 @@ contract DecentralisedJobMarketplace with Deployable {
         require(job!!.completedAt != null, "Job is not completed by worker");
         require(msg.worker_rating >= 1 && msg.worker_rating <= 5, "Worker rating must be between 1 and 5");
         let updatedJob = Job{
+            id: job!!.id,
             title: job!!.title,
             description: job!!.description,
             compensation: job!!.compensation,
+            skills: job!!.skills,
+            numberOfSkills: job!!.numberOfSkills,
             employer: job!!.employer,
             worker: job!!.worker,
             isAcceptingApplicants: job!!.isAcceptingApplicants,
@@ -157,24 +259,22 @@ contract DecentralisedJobMarketplace with Deployable {
             completedAt: now(),
         };
         self.jobs.set(msg.job_id, updatedJob);
-        let reputation = self.reputation.get(job!!.worker!!);
-        if(reputation == null){
-            reputation = Reputation{
-                ratings: emptyMap(),
-                reviews: emptyMap(),
-                numberOfRatings: 0,
-            };
-        }
-        let updatedRatings = reputation!!.ratings;
-        updatedRatings.set(reputation!!.numberOfRatings, msg.worker_rating);
-        let updatedReviews = reputation!!.reviews;
+        let worker = self.users.get(job!!.worker!!);
+        let updatedReputations = worker!!.reputations;
         let reviewBuilder = beginString();
         reviewBuilder.append(msg.worker_review);
-        updatedReviews.set(reputation!!.numberOfRatings, reviewBuilder.toCell());
-        self.reputation.set(job!!.worker!!, Reputation{
-            ratings: updatedRatings,
-            reviews: updatedReviews,
-            numberOfRatings: reputation!!.numberOfRatings + 1,
+        updatedReputations.set(worker!!.numberOfReputations, Reputation{
+            rating: msg.worker_rating,
+            review: reviewBuilder.toCell(),
+        });
+        self.users.set(job!!.worker!!, User{
+            address: worker!!.address,
+            name: worker!!.name,
+            email: worker!!.email,
+            skills: worker!!.skills,
+            isEmployer: worker!!.isEmployer,
+            reputations: updatedReputations,
+            numberOfReputations: worker!!.numberOfReputations + 1,
         });
 
         send(SendParameters{
@@ -194,9 +294,12 @@ contract DecentralisedJobMarketplace with Deployable {
                 mode: 0,
             });
         }
+        self.reply("Gas refund".asComment());
     }
 
     receive(msg: CreatePost){
+        let user = self.users.get(context().sender);
+        require(user != null, "User does not exist");
         let postId = self.postCounter;
         self.postCounter = self.postCounter + 1;
         self.posts.set(postId, Post{
@@ -210,14 +313,18 @@ contract DecentralisedJobMarketplace with Deployable {
             author: context().sender,
             createdAt: now(),
         });
+        self.reply("Gas refund".asComment());
     }
 
     receive(msg: CreateComment){
+        let user = self.users.get(context().sender);
+        require(user != null, "User does not exist");
         let post = self.posts.get(msg.post_id);
         require(post != null, "Post does not exist");
         let commentId = post!!.numberOfComments;
         let updatedComments = post!!.comments;
         updatedComments.set(commentId, Comment{
+            id: commentId,
             author: context().sender,
             content: msg.content,
             upvotes: 0,
@@ -234,9 +341,12 @@ contract DecentralisedJobMarketplace with Deployable {
             downvotes: post!!.downvotes,
             createdAt: post!!.createdAt,
         });
+        self.reply("Gas refund".asComment());
     }
 
     receive(msg: UpvotePost){
+        let user = self.users.get(context().sender);
+        require(user != null, "User does not exist");
         let post = self.posts.get(msg.post_id);
         require(post != null, "Post does not exist");
         let updatedPost = Post{
@@ -251,9 +361,12 @@ contract DecentralisedJobMarketplace with Deployable {
             createdAt: post!!.createdAt,
         };
         self.posts.set(msg.post_id, updatedPost);
+        self.reply("Gas refund".asComment());
     }
 
     receive(msg: DownvotePost){
+        let user = self.users.get(context().sender);
+        require(user != null, "User does not exist");
         let post = self.posts.get(msg.post_id);
         require(post != null, "Post does not exist");
         let updatedPost = Post{
@@ -268,11 +381,15 @@ contract DecentralisedJobMarketplace with Deployable {
             createdAt: post!!.createdAt,
         };
         self.posts.set(msg.post_id, updatedPost);
+        self.reply("Gas refund".asComment());
     }
 
     receive(msg: ArchivePost){
+        let user = self.users.get(context().sender);
+        require(user != null, "User does not exist");
         let post = self.posts.get(msg.post_id);
         require(post != null, "Post does not exist");
+        require(post!!.author == context().sender, "Only author can archive post");
         let updatedPost = Post{
             id: post!!.id,
             title: post!!.title,
@@ -286,14 +403,18 @@ contract DecentralisedJobMarketplace with Deployable {
             archivedAt: now(),
         };
         self.posts.set(msg.post_id, updatedPost);
+        self.reply("Gas refund".asComment());
     }
 
     receive(msg: UpvoteComment){
+        let user = self.users.get(context().sender);
+        require(user != null, "User does not exist");
         let post = self.posts.get(msg.post_id);
         require(post != null, "Post does not exist");
         let comment = post!!.comments.get(msg.comment_id);
         require(comment != null, "Comment does not exist");
         let updatedComment = Comment{
+            id: comment!!.id,
             author: comment!!.author,
             content: comment!!.content,
             upvotes: comment!!.upvotes + 1,
@@ -312,14 +433,18 @@ contract DecentralisedJobMarketplace with Deployable {
             downvotes: post!!.downvotes,
             createdAt: post!!.createdAt,
         });
+        self.reply("Gas refund".asComment());
     }
 
     receive(msg: DownvoteComment){
+        let user = self.users.get(context().sender);
+        require(user != null, "User does not exist");
         let post = self.posts.get(msg.post_id);
         require(post != null, "Post does not exist");
         let comment = post!!.comments.get(msg.comment_id);
         require(comment != null, "Comment does not exist");
         let updatedComment = Comment{
+            id: comment!!.id,
             author: comment!!.author,
             content: comment!!.content,
             upvotes: comment!!.upvotes,
@@ -338,6 +463,7 @@ contract DecentralisedJobMarketplace with Deployable {
             downvotes: post!!.downvotes,
             createdAt: post!!.createdAt,
         });
+        self.reply("Gas refund".asComment());
     }
 
     get fun nftCollection(): Address {
@@ -356,16 +482,20 @@ contract DecentralisedJobMarketplace with Deployable {
         return self.jobs.get(job_id);
     }
 
-    get fun reputation(worker: Address): Reputation {
-        let workerReputation = self.reputation.get(worker);
-        if(workerReputation == null){
-            workerReputation = Reputation{
-                ratings: emptyMap(),
-                reviews: emptyMap(),
-                numberOfRatings: 0,
+    get fun user(userAddress: Address): User {
+        let _user = self.users.get(userAddress);
+        if(_user == null){
+            _user = User{
+                address: userAddress,
+                name: "",
+                email: "",
+                skills: emptyMap(),
+                isEmployer: false,
+                reputations: emptyMap(),
+                numberOfReputations: 0,
             };
         }
-        return workerReputation!!;
+        return _user!!;
     }
 
     get fun posts(): map<Int, Post> {

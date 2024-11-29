@@ -1,5 +1,5 @@
 import { Blockchain, SandboxContract, TreasuryContract } from '@ton/sandbox';
-import { Address, beginCell, toNano } from '@ton/core';
+import { Address, beginCell, Cell, Dictionary, toNano } from '@ton/core';
 import { DecentralisedJobMarketplace } from '../wrappers/DecentralisedJobMarketplace';
 import '@ton/test-utils';
 import { NftCollection } from '../wrappers/NftCollection';
@@ -60,8 +60,150 @@ describe('DecentralisedJobMarketplace', () => {
         });
     });
 
+    const createUser = async (user: SandboxContract<TreasuryContract>, isEmployer: boolean) => {
+        const skills = Dictionary.empty<bigint, Cell>();
+        skills.set(0n, beginCell().storeUint(0x01, 8).storeStringRefTail('Skill 1').endCell());
+        skills.set(1n, beginCell().storeUint(0x02, 8).storeStringRefTail('Skill 2').endCell());
+        const createUserResult = await decentralisedJobMarketplace.send(
+            user.getSender(),
+            {
+                value: toNano('0.05'),
+            },
+            {
+                $$type: 'CreateUser',
+                address: user.address,
+                name: 'Test User',
+                email: 'test@example.com',
+                skills: skills,
+                isEmployer: isEmployer,
+            },
+        );
+        expect(createUserResult.transactions).toHaveTransaction({
+            from: user.address,
+            to: decentralisedJobMarketplace.address,
+            success: true,
+        });
+        const _user = await decentralisedJobMarketplace.getUser(user.address);
+        expect(_user!!.address).toEqualAddress(user.address);
+        expect(_user!!.name).toBe('Test User');
+        expect(_user!!.email).toBe('test@example.com');
+        expect(_user!!.isEmployer).toBe(isEmployer);
+    };
+
+    it('should let users create an employer account', async () => {
+        const employer = await blockchain.treasury('employer');
+        await createUser(employer, true);
+    });
+
+    it('should let users create a worker account', async () => {
+        const worker = await blockchain.treasury('worker');
+        await createUser(worker, false);
+    });
+
+    it('should let users update their name', async () => {
+        const user = await blockchain.treasury('user');
+        await createUser(user, false);
+        const updateUserNameResult = await decentralisedJobMarketplace.send(
+            user.getSender(),
+            {
+                value: toNano('0.05'),
+            },
+            {
+                $$type: 'UpdateUserName',
+                address: user.address,
+                name: 'New Name',
+            },
+        );
+        expect(updateUserNameResult.transactions).toHaveTransaction({
+            from: user.address,
+            to: decentralisedJobMarketplace.address,
+            success: true,
+        });
+        const _user = await decentralisedJobMarketplace.getUser(user.address);
+        expect(_user!!.name).toBe('New Name');
+    });
+
+    it('should let users update their email', async () => {
+        const user = await blockchain.treasury('user');
+        await createUser(user, false);
+        const updateUserEmailResult = await decentralisedJobMarketplace.send(
+            user.getSender(),
+            {
+                value: toNano('0.05'),
+            },
+            {
+                $$type: 'UpdateUserEmail',
+                address: user.address,
+                email: 'new@example.com',
+            },
+        );
+        expect(updateUserEmailResult.transactions).toHaveTransaction({
+            from: user.address,
+            to: decentralisedJobMarketplace.address,
+            success: true,
+        });
+        const _user = await decentralisedJobMarketplace.getUser(user.address);
+        expect(_user!!.email).toBe('new@example.com');
+    });
+
+    it('should let users update their role', async () => {
+        const user = await blockchain.treasury('user');
+        await createUser(user, false);
+        const updateUserRoleResult = await decentralisedJobMarketplace.send(
+            user.getSender(),
+            {
+                value: toNano('0.05'),
+            },
+            {
+                $$type: 'UpdateUserRole',
+                address: user.address,
+                isEmployer: true,
+            },
+        );
+        expect(updateUserRoleResult.transactions).toHaveTransaction({
+            from: user.address,
+            to: decentralisedJobMarketplace.address,
+            success: true,
+        });
+        const _user = await decentralisedJobMarketplace.getUser(user.address);
+        expect(_user!!.isEmployer).toBe(true);
+    });
+
+    it('should let users update their skills', async () => {
+        const user = await blockchain.treasury('user');
+        await createUser(user, false);
+        const skills = Dictionary.empty<bigint, Cell>();
+        skills.set(0n, beginCell().storeUint(0x01, 8).storeStringRefTail('New Skill 1').endCell());
+        skills.set(1n, beginCell().storeUint(0x02, 8).storeStringRefTail('New Skill 2').endCell());
+        const updateUserSkillsResult = await decentralisedJobMarketplace.send(
+            user.getSender(),
+            {
+                value: toNano('0.05'),
+            },
+            {
+                $$type: 'UpdateUserSkills',
+                address: user.address,
+                skills: skills,
+            },
+        );
+        expect(updateUserSkillsResult.transactions).toHaveTransaction({
+            from: user.address,
+            to: decentralisedJobMarketplace.address,
+            success: true,
+        });
+        const _user = await decentralisedJobMarketplace.getUser(user.address);
+        expect(_user!!.skills.size).toBe(skills.size);
+        skills.keys().forEach((key) => {
+            expect(_user!!.skills.get(key)?.toString()).toBe(skills.get(key)?.toString());
+        });
+    });
+
     const createJob = async (employer: SandboxContract<TreasuryContract>) => {
         const jobsBefore = await decentralisedJobMarketplace.getJobs();
+        const skills = Dictionary.empty<bigint, Cell>();
+        skills.set(0n, beginCell().storeUint(0x01, 8).storeStringRefTail('Skill 1').endCell());
+        skills.set(1n, beginCell().storeUint(0x01, 8).storeStringRefTail('Skill 2').endCell());
+
         const createJobResult = await decentralisedJobMarketplace.send(
             employer.getSender(),
             {
@@ -72,6 +214,8 @@ describe('DecentralisedJobMarketplace', () => {
                 title: 'Job 1',
                 description: 'Job 1 Description',
                 compensation: toNano('1'),
+                skills: skills,
+                numberOfSkills: BigInt(skills.size),
             },
         );
         expect(createJobResult.transactions).toHaveTransaction({
@@ -84,11 +228,16 @@ describe('DecentralisedJobMarketplace', () => {
         const job = jobsAfter.get(BigInt(jobsAfter.size) - 1n);
         expect(job!!.title).toBe('Job 1');
         expect(job!!.description).toBe('Job 1 Description');
+        expect(job!!.skills.size).toBe(2);
+        skills.keys().forEach((key) => {
+            expect(job!!.skills.get(key)?.toString()).toBe(skills.get(key)?.toString());
+        });
         expect(job!!.compensation).toBe(toNano('1'));
     };
 
     it('should create a new job', async () => {
         const employer = await blockchain.treasury('employer');
+        await createUser(employer, true);
         await createJob(employer);
     });
 
@@ -116,8 +265,10 @@ describe('DecentralisedJobMarketplace', () => {
 
     it('should let applicants apply for a job', async () => {
         const employer = await blockchain.treasury('employer');
+        await createUser(employer, true);
         await createJob(employer);
         const worker = await blockchain.treasury('worker');
+        await createUser(worker, false);
         await applyForJob(0n, worker);
     });
 
@@ -145,17 +296,22 @@ describe('DecentralisedJobMarketplace', () => {
 
     it('should let the employer accept an applicant', async () => {
         const employer = await blockchain.treasury('employer');
+        await createUser(employer, true);
         await createJob(employer);
         const worker1 = await blockchain.treasury('worker:1');
+        await createUser(worker1, false);
         await applyForJob(0n, worker1);
         const worker2 = await blockchain.treasury('worker:2');
+        await createUser(worker2, false);
         await applyForJob(0n, worker2);
         const worker3 = await blockchain.treasury('worker:3');
+        await createUser(worker3, false);
         await applyForJob(0n, worker3);
         await acceptApplicant(employer, 0n, worker2.address);
     });
 
     const completeJob = async (worker: SandboxContract<TreasuryContract>, jobId: bigint) => {
+        let timeBefore = Math.floor(Date.now() / 1000);
         const completeJobResult = await decentralisedJobMarketplace.send(
             worker.getSender(),
             {
@@ -174,13 +330,17 @@ describe('DecentralisedJobMarketplace', () => {
             success: true,
         });
         const job = await decentralisedJobMarketplace.getJob(jobId);
-        expect(Number(job!.completedAt)).toBeCloseTo(Math.floor(Date.now() / 1000));
+        let timeNow = Math.floor(Date.now() / 1000);
+        expect(Number(job!.completedAt)).toBeLessThanOrEqual(timeNow);
+        expect(Number(job!.completedAt)).toBeGreaterThanOrEqual(timeBefore);
     };
 
     it('should let the worker complete a job', async () => {
         const employer = await blockchain.treasury('employer');
+        await createUser(employer, true);
         await createJob(employer);
         const worker = await blockchain.treasury('worker');
+        await createUser(worker, false);
         await applyForJob(0n, worker);
         await acceptApplicant(employer, 0n, worker.address);
         await completeJob(worker, 0n);
@@ -211,8 +371,10 @@ describe('DecentralisedJobMarketplace', () => {
 
     it('should let the employer mark a job as completed', async () => {
         const employer = await blockchain.treasury('employer');
+        await createUser(employer, true);
         await createJob(employer);
         const worker = await blockchain.treasury('worker');
+        await createUser(worker, false);
         await applyForJob(0n, worker);
         await acceptApplicant(employer, 0n, worker.address);
         await completeJob(worker, 0n);
@@ -224,8 +386,10 @@ describe('DecentralisedJobMarketplace', () => {
 
     it('should mint an SBT to the worker upon job completion', async () => {
         const employer = await blockchain.treasury('employer');
+        await createUser(employer, true);
         await createJob(employer);
         const worker = await blockchain.treasury('worker');
+        await createUser(worker, false);
         await applyForJob(0n, worker);
         await acceptApplicant(employer, 0n, worker.address);
         await completeJob(worker, 0n);
@@ -263,6 +427,7 @@ describe('DecentralisedJobMarketplace', () => {
 
     it('should let users create posts', async () => {
         const author = await blockchain.treasury('author');
+        await createUser(author, false);
         await createPost(author);
     });
 
@@ -310,10 +475,13 @@ describe('DecentralisedJobMarketplace', () => {
 
     it('should let users vote on posts', async () => {
         const author = await blockchain.treasury('author');
+        await createUser(author, false);
         await createPost(author);
         const voter1 = await blockchain.treasury('voter:1');
+        await createUser(voter1, false);
         await upvotePost(0n, voter1);
         const voter2 = await blockchain.treasury('voter:2');
+        await createUser(voter2, false);
         await downvotePost(0n, voter2);
     });
 
@@ -341,8 +509,10 @@ describe('DecentralisedJobMarketplace', () => {
 
     it('should let users comment on posts', async () => {
         const author = await blockchain.treasury('author');
+        await createUser(author, false);
         await createPost(author);
         const commenter = await blockchain.treasury('commenter');
+        await createUser(commenter, false);
         await createComment(0n, commenter);
     });
 
@@ -396,12 +566,16 @@ describe('DecentralisedJobMarketplace', () => {
 
     it('should let users vote on comments', async () => {
         const author = await blockchain.treasury('author');
+        await createUser(author, false);
         await createPost(author);
         const commenter = await blockchain.treasury('commenter');
+        await createUser(commenter, false);
         await createComment(0n, commenter);
         const voter1 = await blockchain.treasury('voter:1');
+        await createUser(voter1, false);
         await upvoteComment(0n, 0n, voter1);
         const voter2 = await blockchain.treasury('voter:2');
+        await createUser(voter2, false);
         await downvoteComment(0n, 0n, voter2);
     });
 });

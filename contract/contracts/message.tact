@@ -75,9 +75,12 @@ message(0x6f89f5e3) Revoke {
     query_id: Int as uint64;
 }
 struct Job {
+    id: Int;
     title: String;
     description: String;
     compensation: Int? as coins;
+    skills: map<Int, Cell>;
+    numberOfSkills: Int;
     employer: Address;
     isAcceptingApplicants: Bool;
     worker: Address?;
@@ -102,20 +105,54 @@ struct Post {
     archivedAt: Int?;
 }
 struct Comment {
+    id: Int;
     author: Address;
     content: String;
     upvotes: Int;
     downvotes: Int;
 }
+struct User {
+    address: Address;
+    name: String;
+    email: String;
+    skills: map<Int, Cell>;
+    isEmployer: Bool;
+    reputations: map<Int, Reputation>;
+    numberOfReputations: Int;
+}
 struct Reputation {
-    ratings: map<Int, Int>;
-    reviews: map<Int, Cell>;
-    numberOfRatings: Int;
+    rating: Int;
+    review: Cell;
+}
+message CreateUser {
+    address: Address;
+    name: String;
+    email: String;
+    skills: map<Int, Cell>;
+    isEmployer: Bool;
+}
+message UpdateUserName {
+    address: Address;
+    name: String;
+}
+message UpdateUserEmail {
+    address: Address;
+    email: String;
+}
+message UpdateUserRole {
+    address: Address;
+    isEmployer: Bool;
+}
+message UpdateUserSkills {
+    address: Address;
+    skills: map<Int, Cell>;
 }
 message CreateJob {
     title: String;
     description: String;
     compensation: Int as coins;
+    skills: map<Int, Cell>;
+    numberOfSkills: Int;
 }
 message ApplyForJob {
     job_id: Int;
